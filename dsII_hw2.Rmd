@@ -41,11 +41,13 @@ library(bayesQR)
 
 
 Partition the dataset into two parts: training data (80%) and test data (20%).
+
 (a) Fit smoothing spline models to predict out-of-state tuition (Outstate) using the percentage
 of alumni who donate (perc.alumni) as the only predictor, across a range of degrees of
 freedom. Plot the fitted curve for each degree of freedom. Describe the patterns you observe
 as the degrees of freedom change. Choose an appropriate degree of freedom for the model
 and plot this optimal fit. Explain the criteria you used to select the degree of freedom.
+
 ```{r}
 college_data = read_csv(file = "/Users/shayneestill/Desktop/Data Science II/dsII_hw2/College.csv", 
                         na = c("NA", ".", "")) |>
@@ -72,6 +74,35 @@ y2 <- testing_data$outstate
 summary(college_data$perc_alumni)
 ```
 
+```{r}
+df_values <- c(2, 5, 10, 15)
+pred_list <- list()  
+
+for (df in df_values) 
+  {fit.ss <- smooth.spline(training_data$perc_alumni, training_data$outstate, df = df)
+  pred.ss <- predict(fit.ss, x = perc_alumni.grid)
+  
+
+  pred_list[[as.character(df)]] <- 
+    data.frame(perc_alumni = perc_alumni.grid, pred = pred.ss$y, df = as.factor(df))
+  
+}
+
+predictions_df <- do.call(rbind, pred_list)
+
+
+p <- ggplot(training_data, aes(x = perc_alumni, y = outstate)) +
+  geom_point(color = rgb(.2, .4, .2, .5)) +
+  theme_bw()
+
+p + geom_line(data = predictions_df, aes(x = perc_alumni, y = pred, color = df), size = 1) +
+  scale_color_manual(values = c("green", "orange", "purple", "red")) +
+  labs(color = "Degrees of Freedom") +
+  ggtitle("Smoothing Spline Models Across Different Degrees of Freedom")
+
+```
+
+As the degrees of freedom increase, the line gets more squiggly and less smooth. 
 
 ```{r}
 fit.ss <- smooth.spline(training_data$perc_alumni, training_data$outstate)
@@ -90,55 +121,8 @@ p + geom_line(aes(x = perc_alumni, y = pred), data = pred.ss.df,
 color = rgb(.8, .1, .1, 1)) + theme_bw()
 ```
 
-```{r}
-df_values <- c(2, 5, 10, 15)  
-
-for (df in df_values) {
-  fit.ss <- smooth.spline(training_data$perc_alumni, training_data$outstate, df = df)
-  pred.ss <- predict(fit.ss, x = perc_alumni.grid)
-  pred.ss.df <- data.frame(pred = pred.ss$y, perc_alumni = perc_alumni.grid)
-  
-  p <- p + geom_line(data = pred.ss.df, aes(x = perc_alumni, y = pred, color = df))
-}
-```
-
-
-```{r}
-df_values <- c(2, 5, 10, 15)
-pred_list <- list()  # Create an empty list to store data
-
-for (df in df_values) {
-  fit.ss <- smooth.spline(training_data$perc_alumni, training_data$outstate, df = df)
-  pred.ss <- predict(fit.ss, x = perc_alumni.grid)
-  
-  # Store predictions in a dataframe with df as a factor
-  pred_list[[as.character(df)]] <- data.frame(
-    perc_alumni = perc_alumni.grid,
-    pred = pred.ss$y,
-    df = as.factor(df)  # Convert df to a factor for discrete color mapping
-  )
-}
-
-# Combine all predictions into one dataframe
-predictions_df <- do.call(rbind, pred_list)
-
-# Base scatterplot
-p <- ggplot(training_data, aes(x = perc_alumni, y = outstate)) +
-  geom_point(color = rgb(.2, .4, .2, .5)) +
-  theme_bw()
-
-# Add smoothing spline lines with color mapped to df
-p + geom_line(data = predictions_df, aes(x = perc_alumni, y = pred, color = df), size = 1) +
-  scale_color_manual(values = c("red", "green", "purple", "orange")) +
-  labs(color = "Degrees of Freedom") +
-  ggtitle("Smoothing Spline Fits with Different Degrees of Freedom")
-
-```
-
-As the degrees of freedom increase, the line gets more squiggly and less smooth. 
-I would choose degree of freedom 2 because it is the most parsimonious. Fit.ss is
-using cross validation to get 2. 
-
+Smooth.spline uses generalized cross validation to determine the best degree of freedom, which is 2. Generalized cross validation minimizes the adjusted residual sum of squares and ensures that
+the smoothing spline does not overfit the data. This method chooses the most parsimonious model, which in this case is 2 df.
 
 
 
@@ -147,13 +131,17 @@ using cross validation to get 2.
 variable. Report the regression function. Present the partial dependence plot of an arbitrary predictor in your model. Report the test error.
 
 ```{r}
+set.seed(204)
 mars_grid <- expand.grid(degree = 1:3, nprune = 2:16)
 
 ctrl1 <- trainControl(method = "cv", number = 10)
 
-set.seed(2)
+training_b <- model.matrix(outstate ~ ., training_data)[,-1]
+training_b2 <- training_b[, (ncol(training_b)-15):(ncol(training_b))]
 
-mars.fit <- train(model.matrix(outstate ~ ., training_data)[, -c(1,9)], training_data$outstate,
+
+
+mars.fit <- train(training_b2, training_data$outstate,
 method = "earth",
 tuneGrid = mars_grid,
 trControl = ctrl1)
@@ -162,14 +150,18 @@ ggplot(mars.fit)
 
 
 ```{r}
+set.seed(205)
 mars.fit$bestTune
 ```
 
 ```{r}
 coef(mars.fit$finalModel)
 ```
+The regression function will have 13 terms.
 
-The regression function is 12623.8352 + 184.5414x1 - 129.9566x2 
+
+
+I choose the arbitrary predictors of ph_d and apps for the partial dependence plot. 
 ```{r}
 p1 <- pdp::partial(mars.fit, pred.var = c("perc_alumni"), grid.resolution = 10) |> autoplot()
 
@@ -181,15 +173,14 @@ screen = list(z = 20, x = -60))
 gridExtra::grid.arrange(p1, p2, ncol = 2)
 ```
 
-```{r}
-mars_grid <- expand.grid(degree = 1:3, nprune = 2:16)
 
-mars.fit <- train(model.matrix(outstate ~ ., training_data)[, -c(1,9)], training_data$outstate,
-method = "earth",
-tuneGrid = mars_grid,
-trControl = ctrl1)
-ggplot(mars.fit)
+```{r}
+mars_pred <- predict(mars.fit, newdata = testing_data)
+mars_pred_error <- mean((mars_pred - y2)^2)
+mars_pred_error
 ```
+The testing error is 2831844. 
+
 
 
 (c) Construct a generalized additive model (GAM) to predict the response variable. For the
@@ -205,23 +196,34 @@ gam.m1 <- gam(outstate ~ s(perc_alumni)+ s(apps) + s(accept) + s(enroll) +
 par(mfrow=c(1,2))
 plot(gam.m1)
 
-rmse <- sqrt(mean((test_data$y - predictions)^2))
-print(paste("Test RMSE:", rmse))
+test_pred_c <-predict(gam.m1, newdata = testing_data)
+test_error_c <- mean(test_pred_c - y2)^2
+test_error_c
 ```
+The testing error is 99.92725
 
-
+p_undergrad, enroll, top25perc, apps
 
 (d) In this dataset, would you favor a MARS model over a linear model for predicting out-of-
 state tuition? If so, why? More broadly, in general applications, do you consider a MARS
 model to be superior to a linear model? Please share your reasoning.
 
+```{r}
+lm.fit <- train(outstate ~ perc_alumni + apps + accept + enroll +
+                top10perc + top25perc + f_undergrad + p_undergrad +
+                room_board + books + personal + ph_d + terminal +
+                s_f_ratio + perc_alumni + expend + grad_rate,
+              data = training_data, method = "lm", trControl = ctrl1)
+```
+
+```{r}
+bwplot(resamples(list(mars = mars.fit,
+lm = lm.fit)),
+metric = "RMSE")
+```
 
 I would favor MARS over a linear model over for predicting out of state tuition because MARS
-is more flexible and adaptive than a linear model. However, we do loose out on interpretability of 
-the prediction. 
-
-
-
+is more flexible and adaptive than a linear model. However in general, we do loose out on interpretability of the prediction in MARS compared to a linear model. 
 
 
 
